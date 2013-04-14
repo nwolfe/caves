@@ -1,11 +1,11 @@
 (ns caves.core
   (:gen-class)
+  (:use [caves.world :only [random-world]])
   (:require [lanterna.screen :as s]))
 
 ; --------------------------------------------------------------------------------
 ; Data Structures 
 (defrecord UI [kind])
-(defrecord World [])
 (defrecord Game [world uis input])
 
 ; --------------------------------------------------------------------------------
@@ -15,16 +15,35 @@
     (:kind ui)))
 
 (defmethod draw-ui :start [ui game screen]
-  (s/put-string screen 0 0 "Welcome to Caves of Clojure!")
-  (s/put-string screen 0 1 "Press enter to win, anything else to lose."))
-
+  (s/put-sheet screen 0 0
+               ["Welcome to the Caves of Clojure!"
+                ""
+                "Press any key to continue."
+                "Once in the game, you can use Enter to win, and Backspace to lose."]))
+  
 (defmethod draw-ui :win [ui game screen]
   (s/put-string screen 0 0 "Congratulations, you win!")
-  (s/put-string screen 0 1 "Press escape to exit, anything else to restart."))
+  (s/put-string screen 0 1 "Press Escape to exit, anything else to restart."))
 
 (defmethod draw-ui :lose [ui game screen]
   (s/put-string screen 0 0 "Sorry, better luck next time.")
-  (s/put-string screen 0 1 "Press escape to exit, anything else to go."))
+  (s/put-string screen 0 1 "Press Escape to exit, anything else to restart."))
+
+(defmethod draw-ui :play [ui {{:keys [tiles]} :world :as game} screen]
+  (let [[cols rows] (s/get-size screen)
+        vcols cols
+        vrows (dec rows)
+        start-x 0
+        start-y 0
+        end-x (+ start-x vcols)
+        end-y (+ start-y vrows)]
+    (doseq [[vrow-idx mrow-idx] (map vector
+                                     (range 0 vrows)
+                                     (range start-y end-y))
+            :let [row-tiles (subvec (tiles mrow-idx) start-x end-x)]]
+      (doseq [vcol-idx (range vcols)
+              :let [{:keys [glyph color]} (row-tiles vcol-idx)]]
+        (s/put-string screen vcol-idx vrow-idx glyph {:fg color})))))
 
 (defn draw-game [game screen]
   (s/clear screen)
@@ -39,9 +58,9 @@
     (:kind (last (:uis game)))))
 
 (defmethod process-input :start [game input]
-  (if (= input :enter)
-    (assoc game :uis [(new UI :win)])
-    (assoc game :uis [(new UI :lose)])))
+  (-> game
+      (assoc :world (random-world))
+      (assoc :uis [(new UI :play)])))
 
 (defmethod process-input :win [game input]
   (if (= input :escape)
@@ -52,6 +71,12 @@
   (if (= input :escape)
     (assoc game :uis [])
     (assoc game :uis [(new UI :start)])))
+
+(defmethod process-input :play [game input]
+  (case input
+    :enter     (assoc game :uis [(new UI :win)])
+    :backspace (assoc game :uis [(new UI :lose)])
+    game))
 
 (defn get-input [game screen]
   (assoc game :input (s/get-key-blocking screen)))
@@ -67,10 +92,7 @@
         (recur (process-input (dissoc game :input) input))))))
 
 (defn new-game []
-  (new Game
-       (new World)
-       [(new UI :start)]
-       nil))
+  (new Game nil [(new UI :start)] nil))
 
 (defn main
   ([screen-type] (main screen-type false))
